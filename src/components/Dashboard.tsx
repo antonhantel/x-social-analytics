@@ -5,6 +5,7 @@ import { ResearcherTable } from "./ResearcherTable";
 import { AlertsPanel } from "./AlertsPanel";
 import { NewestReached } from "./NewestReached";
 import { ThemeToggle } from "./ThemeToggle";
+import { HowToUseGuide } from "./HowToUseGuide";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
 import { BarChart3, Target } from "lucide-react";
 
@@ -227,7 +228,10 @@ export const Dashboard = () => {
                 </p>
               </div>
             </div>
-            <ThemeToggle />
+            <div className="flex items-center gap-1">
+              <HowToUseGuide />
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </header>
