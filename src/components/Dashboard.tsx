@@ -1,14 +1,38 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { KPICard } from "./KPICard";
 import { UploadSection } from "./UploadSection";
 import { ResearcherTable } from "./ResearcherTable";
 import { AlertsPanel } from "./AlertsPanel";
+import { NewestReached } from "./NewestReached";
+import { ThemeToggle } from "./ThemeToggle";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
-import { BarChart3, Users, Target } from "lucide-react";
+import { BarChart3, Target } from "lucide-react";
+
+// Dummy data for demonstration
+const DUMMY_RESEARCHERS: Researcher[] = [
+  { id: "1", handle: "ylecun", name: "Yann LeCun", isFollowing: true, likes: 12, reposts: 3, replies: 5, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 8, previousReposts: 2, previousReplies: 3 },
+  { id: "2", handle: "kaboris", name: "Kai-Fu Lee", isFollowing: true, likes: 8, reposts: 2, replies: 1, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 5, previousReposts: 1, previousReplies: 0 },
+  { id: "3", handle: "sama", name: "Sam Altman", isFollowing: false, likes: 3, reposts: 1, replies: 0, lastInteraction: null, isHot: false },
+  { id: "4", handle: "demaboris", name: "Demis Hassabis", isFollowing: true, likes: 15, reposts: 4, replies: 3, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 10, previousReposts: 2, previousReplies: 1 },
+  { id: "5", handle: "fchollet", name: "François Chollet", isFollowing: true, likes: 6, reposts: 2, replies: 2, lastInteraction: new Date().toISOString(), isHot: false, previousLikes: 6, previousReposts: 2, previousReplies: 2 },
+  { id: "6", handle: "jeffdean", name: "Jeff Dean", isFollowing: false, likes: 2, reposts: 0, replies: 1, lastInteraction: null, isHot: false },
+  { id: "7", handle: "hardmaru", name: "David Ha", isFollowing: true, likes: 9, reposts: 3, replies: 4, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 5, previousReposts: 1, previousReplies: 2 },
+  { id: "8", handle: "goodfellow_ian", name: "Ian Goodfellow", isFollowing: false, likes: 1, reposts: 0, replies: 0, lastInteraction: null, isHot: false },
+  { id: "9", handle: "AndrewYNg", name: "Andrew Ng", isFollowing: true, likes: 11, reposts: 5, replies: 2, lastInteraction: new Date().toISOString(), isHot: false, previousLikes: 11, previousReposts: 5, previousReplies: 2 },
+  { id: "10", handle: "ilozhinska", name: "Ilya Sutskever", isFollowing: true, likes: 7, reposts: 1, replies: 3, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 3, previousReposts: 0, previousReplies: 1 },
+];
+
+const DUMMY_ALERTS: AlertItem[] = [
+  { id: "a1", handle: "ylecun", name: "Yann LeCun", type: "like", timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString() },
+  { id: "a2", handle: "demaboris", name: "Demis Hassabis", type: "new_follow", timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString() },
+  { id: "a3", handle: "hardmaru", name: "David Ha", type: "repost", timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
+  { id: "a4", handle: "kaboris", name: "Kai-Fu Lee", type: "reply", timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString() },
+  { id: "a5", handle: "ilozhinska", name: "Ilya Sutskever", type: "like", timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString() },
+];
 
 export const Dashboard = () => {
-  const [researchers, setResearchers] = useState<Researcher[]>([]);
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [researchers, setResearchers] = useState<Researcher[]>(DUMMY_RESEARCHERS);
+  const [alerts, setAlerts] = useState<AlertItem[]>(DUMMY_ALERTS);
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -46,6 +70,11 @@ export const Dashboard = () => {
       relevantFollowershipDelta: reached - prevReached,
       totalTargets: total,
     });
+  }, []);
+
+  // Calculate KPIs on initial load with dummy data
+  useEffect(() => {
+    calculateKPIs(researchers);
   }, []);
 
   const handleTargetUpload = useCallback(
@@ -184,18 +213,21 @@ export const Dashboard = () => {
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <BarChart3 className="w-5 h-5 text-primary" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                <BarChart3 className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-foreground">
+                  GI Social Analytics
+                </h1>
+                <p className="text-sm text-muted-foreground">
+                  AI Researcher Engagement Tracker
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">
-                GI Social Analytics
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                AI Researcher Engagement Tracker
-              </p>
-            </div>
+            <ThemeToggle />
           </div>
         </div>
       </header>
@@ -223,6 +255,11 @@ export const Dashboard = () => {
               subtitle="AI researchers following"
             />
           </div>
+        </section>
+
+        {/* Newest Reached Section */}
+        <section className="mb-8">
+          <NewestReached researchers={researchers} />
         </section>
 
         {/* Uploads and Alerts */}
