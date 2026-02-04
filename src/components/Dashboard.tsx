@@ -13,6 +13,7 @@ import { BarChart3, Target } from "lucide-react";
 const STORAGE_KEYS = {
   RESEARCHERS: "gi_researchers",
   ALERTS: "gi_alerts",
+  TOTAL_FOLLOWERS: "gi_total_followers",
   LAST_UPDATED: "gi_last_updated",
 };
 
@@ -72,6 +73,9 @@ export const Dashboard = () => {
   const [alerts, setAlerts] = useState<AlertItem[]>(() =>
     loadFromStorage(STORAGE_KEYS.ALERTS, [])
   );
+  const [totalFollowers, setTotalFollowers] = useState<number>(() =>
+    loadFromStorage(STORAGE_KEYS.TOTAL_FOLLOWERS, 0)
+  );
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -80,36 +84,50 @@ export const Dashboard = () => {
     relevantFollowership: 0,
     relevantFollowershipDelta: 0,
     totalTargets: 0,
+    totalFollowers: 0,
+    reachedCount: 0,
   });
 
-  const calculateKPIs = useCallback((data: Researcher[]) => {
-    const total = data.length;
-    const reached = data.filter((r) => r.isFollowing).length;
-    const engaged = data.filter(
-      (r) => r.likes + r.reposts + r.replies >= 3
-    ).length;
+  const calculateKPIs = useCallback(
+    (data: Researcher[], followers: number = totalFollowers) => {
+      const total = data.length;
+      const reached = data.filter((r) => r.isFollowing).length;
+      const engaged = data.filter(
+        (r) => r.likes + r.reposts + r.replies >= 3
+      ).length;
 
-    const prevReached = data.filter((r) => r.previousIsFollowing).length;
-    const prevEngaged = data.filter(
-      (r) =>
-        (r.previousLikes || 0) +
-          (r.previousReposts || 0) +
-          (r.previousReplies || 0) >=
-        3
-    ).length;
+      const prevReached = data.filter((r) => r.previousIsFollowing).length;
+      const prevEngaged = data.filter(
+        (r) =>
+          (r.previousLikes || 0) +
+            (r.previousReposts || 0) +
+            (r.previousReplies || 0) >=
+          3
+      ).length;
 
-    setKpis({
-      targetsReached: total > 0 ? Math.round((reached / total) * 100) : 0,
-      targetsReachedDelta:
-        total > 0 ? Math.round(((reached - prevReached) / total) * 100) : 0,
-      heavilyEngaged: total > 0 ? Math.round((engaged / total) * 100) : 0,
-      heavilyEngagedDelta:
-        total > 0 ? Math.round(((engaged - prevEngaged) / total) * 100) : 0,
-      relevantFollowership: reached,
-      relevantFollowershipDelta: reached - prevReached,
-      totalTargets: total,
-    });
-  }, []);
+      // Relevant Followership = reached / total followers (as percentage)
+      const relevantPct =
+        followers > 0 ? Math.round((reached / followers) * 100 * 10) / 10 : 0;
+      const prevRelevantPct =
+        followers > 0 ? Math.round((prevReached / followers) * 100 * 10) / 10 : 0;
+
+      setKpis({
+        targetsReached: total > 0 ? Math.round((reached / total) * 100) : 0,
+        targetsReachedDelta:
+          total > 0 ? Math.round(((reached - prevReached) / total) * 100) : 0,
+        heavilyEngaged: total > 0 ? Math.round((engaged / total) * 100) : 0,
+        heavilyEngagedDelta:
+          total > 0 ? Math.round(((engaged - prevEngaged) / total) * 100) : 0,
+        relevantFollowership: relevantPct,
+        relevantFollowershipDelta:
+          Math.round((relevantPct - prevRelevantPct) * 10) / 10,
+        totalTargets: total,
+        totalFollowers: followers,
+        reachedCount: reached,
+      });
+    },
+    [totalFollowers]
+  );
 
   // Save researchers to localStorage whenever they change
   useEffect(() => {
@@ -123,9 +141,14 @@ export const Dashboard = () => {
     saveToStorage(STORAGE_KEYS.ALERTS, trimmedAlerts);
   }, [alerts]);
 
+  // Save total followers to localStorage
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.TOTAL_FOLLOWERS, totalFollowers);
+  }, [totalFollowers]);
+
   // Calculate KPIs on initial load
   useEffect(() => {
-    calculateKPIs(researchers);
+    calculateKPIs(researchers, totalFollowers);
   }, []);
 
   const handleTargetUpload = useCallback(
@@ -190,6 +213,10 @@ export const Dashboard = () => {
           .filter((h) => h !== "")
       );
 
+      // Update total followers count
+      const newTotalFollowers = followerHandles.size;
+      setTotalFollowers(newTotalFollowers);
+
       setResearchers((prev) => {
         const updated = prev.map((r) => ({
           ...r,
@@ -213,7 +240,7 @@ export const Dashboard = () => {
           }));
 
         setAlerts((prevAlerts) => [...newFollowAlerts, ...prevAlerts]);
-        calculateKPIs(updated);
+        calculateKPIs(updated, newTotalFollowers);
         return updated;
       });
     },
@@ -338,7 +365,7 @@ export const Dashboard = () => {
               title="Targets Reached"
               value={`${kpis.targetsReached}%`}
               delta={kpis.targetsReachedDelta}
-              subtitle={`${kpis.relevantFollowership} of ${kpis.totalTargets} following`}
+              subtitle={`${kpis.reachedCount} of ${kpis.totalTargets} targets`}
             />
             <KPICard
               title="Heavily Engaged"
@@ -348,9 +375,9 @@ export const Dashboard = () => {
             />
             <KPICard
               title="Relevant Followership"
-              value={`${kpis.relevantFollowership}`}
+              value={`${kpis.relevantFollowership}%`}
               delta={kpis.relevantFollowershipDelta}
-              subtitle="AI researchers following"
+              subtitle={`${kpis.reachedCount} of ${kpis.totalFollowers} followers`}
             />
           </div>
         </section>

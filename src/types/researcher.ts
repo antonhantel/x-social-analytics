@@ -22,6 +22,8 @@ export interface KPIData {
   relevantFollowership: number;
   relevantFollowershipDelta: number;
   totalTargets: number;
+  totalFollowers: number;
+  reachedCount: number;
 }
 
 export interface AlertItem {

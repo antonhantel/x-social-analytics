@@ -1,6 +1,5 @@
 import { AlertItem } from "@/types/researcher";
 import { Flame, UserPlus, Heart, Repeat2, MessageCircle } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
 
 interface AlertsPanelProps {
   alerts: AlertItem[];
@@ -67,9 +66,6 @@ export const AlertsPanel = ({ alerts }: AlertsPanelProps) => {
               <p className="text-sm text-foreground truncate">
                 <span className="font-medium">@{alert.handle}</span>{" "}
                 <span className="text-muted-foreground">{getAlertLabel(alert.type)}</span>
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {formatDistanceToNow(new Date(alert.timestamp), { addSuffix: true })}
               </p>
             </div>
           </div>
