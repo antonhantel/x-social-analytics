@@ -9,6 +9,16 @@ import { HowToUseGuide } from "./HowToUseGuide";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
 import { BarChart3, Target } from "lucide-react";
 
+// localStorage keys
+const STORAGE_KEYS = {
+  RESEARCHERS: "gi_researchers",
+  ALERTS: "gi_alerts",
+  LAST_UPDATED: "gi_last_updated",
+};
+
+// Max alerts to keep in storage
+const MAX_ALERTS = 100;
+
 // Helper function to extract username from Twitter/X URL or handle
 const extractHandle = (input: string): string => {
   if (!input) return "";
@@ -36,9 +46,32 @@ const detectInteractionType = (
   return null;
 };
 
+// Load data from localStorage
+const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
+  try {
+    const stored = localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+};
+
+// Save data to localStorage
+const saveToStorage = <T,>(key: string, data: T): void => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.error("Failed to save to localStorage:", e);
+  }
+};
+
 export const Dashboard = () => {
-  const [researchers, setResearchers] = useState<Researcher[]>([]);
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [researchers, setResearchers] = useState<Researcher[]>(() =>
+    loadFromStorage(STORAGE_KEYS.RESEARCHERS, [])
+  );
+  const [alerts, setAlerts] = useState<AlertItem[]>(() =>
+    loadFromStorage(STORAGE_KEYS.ALERTS, [])
+  );
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -78,7 +111,19 @@ export const Dashboard = () => {
     });
   }, []);
 
-  // Calculate KPIs on initial load with dummy data
+  // Save researchers to localStorage whenever they change
+  useEffect(() => {
+    saveToStorage(STORAGE_KEYS.RESEARCHERS, researchers);
+    saveToStorage(STORAGE_KEYS.LAST_UPDATED, new Date().toISOString());
+  }, [researchers]);
+
+  // Save alerts to localStorage (keep only recent ones)
+  useEffect(() => {
+    const trimmedAlerts = alerts.slice(0, MAX_ALERTS);
+    saveToStorage(STORAGE_KEYS.ALERTS, trimmedAlerts);
+  }, [alerts]);
+
+  // Calculate KPIs on initial load
   useEffect(() => {
     calculateKPIs(researchers);
   }, []);
@@ -86,27 +131,51 @@ export const Dashboard = () => {
   const handleTargetUpload = useCallback(
     (data: string[][]) => {
       // Skip header row, expect: handle (or URL), optional name
-      const newResearchers: Researcher[] = data
-        .slice(1)
-        .filter((row) => row[0] && row[0].trim() !== "")
-        .map((row, index) => {
-          const handle = extractHandle(row[0]);
-          return {
-            id: `researcher-${index}-${Date.now()}`,
-            handle,
-            name: row[1]?.trim() || handle,
-            isFollowing: false,
-            likes: 0,
-            reposts: 0,
-            replies: 0,
-            lastInteraction: null,
-            isHot: false,
-          };
-        });
+      // Merge with existing researchers - don't lose data
+      setResearchers((prev) => {
+        const existingByHandle = new Map(
+          prev.map((r) => [r.handle.toLowerCase(), r])
+        );
 
-      setResearchers(newResearchers);
-      setAlerts([]);
-      calculateKPIs(newResearchers);
+        const uploadedHandles = new Set<string>();
+
+        data
+          .slice(1)
+          .filter((row) => row[0] && row[0].trim() !== "")
+          .forEach((row, index) => {
+            const handle = extractHandle(row[0]);
+            const handleLower = handle.toLowerCase();
+            uploadedHandles.add(handleLower);
+
+            if (!existingByHandle.has(handleLower)) {
+              // New researcher - add them
+              existingByHandle.set(handleLower, {
+                id: `researcher-${index}-${Date.now()}`,
+                handle,
+                name: row[1]?.trim() || handle,
+                isFollowing: false,
+                likes: 0,
+                reposts: 0,
+                replies: 0,
+                lastInteraction: null,
+                isHot: false,
+              });
+            } else {
+              // Existing researcher - update name if provided
+              const existing = existingByHandle.get(handleLower)!;
+              if (row[1]?.trim()) {
+                existingByHandle.set(handleLower, {
+                  ...existing,
+                  name: row[1].trim(),
+                });
+              }
+            }
+          });
+
+        const updated = Array.from(existingByHandle.values());
+        calculateKPIs(updated);
+        return updated;
+      });
     },
     [calculateKPIs]
   );
