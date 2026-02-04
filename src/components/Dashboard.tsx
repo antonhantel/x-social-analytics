@@ -9,31 +9,36 @@ import { HowToUseGuide } from "./HowToUseGuide";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
 import { BarChart3, Target } from "lucide-react";
 
-// Dummy data for demonstration
-const DUMMY_RESEARCHERS: Researcher[] = [
-  { id: "1", handle: "ylecun", name: "Yann LeCun", isFollowing: true, likes: 12, reposts: 3, replies: 5, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 8, previousReposts: 2, previousReplies: 3 },
-  { id: "2", handle: "kaboris", name: "Kai-Fu Lee", isFollowing: true, likes: 8, reposts: 2, replies: 1, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 5, previousReposts: 1, previousReplies: 0 },
-  { id: "3", handle: "sama", name: "Sam Altman", isFollowing: false, likes: 3, reposts: 1, replies: 0, lastInteraction: null, isHot: false },
-  { id: "4", handle: "demaboris", name: "Demis Hassabis", isFollowing: true, likes: 15, reposts: 4, replies: 3, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 10, previousReposts: 2, previousReplies: 1 },
-  { id: "5", handle: "fchollet", name: "François Chollet", isFollowing: true, likes: 6, reposts: 2, replies: 2, lastInteraction: new Date().toISOString(), isHot: false, previousLikes: 6, previousReposts: 2, previousReplies: 2 },
-  { id: "6", handle: "jeffdean", name: "Jeff Dean", isFollowing: false, likes: 2, reposts: 0, replies: 1, lastInteraction: null, isHot: false },
-  { id: "7", handle: "hardmaru", name: "David Ha", isFollowing: true, likes: 9, reposts: 3, replies: 4, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 5, previousReposts: 1, previousReplies: 2 },
-  { id: "8", handle: "goodfellow_ian", name: "Ian Goodfellow", isFollowing: false, likes: 1, reposts: 0, replies: 0, lastInteraction: null, isHot: false },
-  { id: "9", handle: "AndrewYNg", name: "Andrew Ng", isFollowing: true, likes: 11, reposts: 5, replies: 2, lastInteraction: new Date().toISOString(), isHot: false, previousLikes: 11, previousReposts: 5, previousReplies: 2 },
-  { id: "10", handle: "ilozhinska", name: "Ilya Sutskever", isFollowing: true, likes: 7, reposts: 1, replies: 3, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 3, previousReposts: 0, previousReplies: 1 },
-];
+// Helper function to extract username from Twitter/X URL or handle
+const extractHandle = (input: string): string => {
+  if (!input) return "";
+  // Handle URLs like https://x.com/username or https://twitter.com/username
+  const urlMatch = input.match(/(?:x\.com|twitter\.com)\/([^\/\?\s]+)/i);
+  if (urlMatch) {
+    return urlMatch[1].replace("@", "");
+  }
+  // Handle plain usernames with or without @
+  return input.replace("@", "").trim();
+};
 
-const DUMMY_ALERTS: AlertItem[] = [
-  { id: "a1", handle: "ylecun", name: "Yann LeCun", type: "like", timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString() },
-  { id: "a2", handle: "demaboris", name: "Demis Hassabis", type: "new_follow", timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString() },
-  { id: "a3", handle: "hardmaru", name: "David Ha", type: "repost", timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-  { id: "a4", handle: "kaboris", name: "Kai-Fu Lee", type: "reply", timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString() },
-  { id: "a5", handle: "ilozhinska", name: "Ilya Sutskever", type: "like", timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString() },
-];
+// Helper function to detect interaction type from notification text
+const detectInteractionType = (
+  col4: string,
+  col7: string
+): "like" | "repost" | "reply" | null => {
+  const col4Lower = (col4 || "").toLowerCase();
+  const col7Lower = (col7 || "").toLowerCase();
+
+  if (col4Lower.includes("liked")) return "like";
+  if (col4Lower.includes("repost")) return "repost";
+  if (col7Lower.includes("replying to") || col7Lower.includes("reply")) return "reply";
+
+  return null;
+};
 
 export const Dashboard = () => {
-  const [researchers, setResearchers] = useState<Researcher[]>(DUMMY_RESEARCHERS);
-  const [alerts, setAlerts] = useState<AlertItem[]>(DUMMY_ALERTS);
+  const [researchers, setResearchers] = useState<Researcher[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -80,20 +85,27 @@ export const Dashboard = () => {
 
   const handleTargetUpload = useCallback(
     (data: string[][]) => {
-      // Skip header row, expect: handle, name
-      const newResearchers: Researcher[] = data.slice(1).map((row, index) => ({
-        id: `researcher-${index}-${Date.now()}`,
-        handle: row[0]?.replace("@", "") || "",
-        name: row[1] || row[0]?.replace("@", "") || "",
-        isFollowing: false,
-        likes: 0,
-        reposts: 0,
-        replies: 0,
-        lastInteraction: null,
-        isHot: false,
-      }));
+      // Skip header row, expect: handle (or URL), optional name
+      const newResearchers: Researcher[] = data
+        .slice(1)
+        .filter((row) => row[0] && row[0].trim() !== "")
+        .map((row, index) => {
+          const handle = extractHandle(row[0]);
+          return {
+            id: `researcher-${index}-${Date.now()}`,
+            handle,
+            name: row[1]?.trim() || handle,
+            isFollowing: false,
+            likes: 0,
+            reposts: 0,
+            replies: 0,
+            lastInteraction: null,
+            isHot: false,
+          };
+        });
 
       setResearchers(newResearchers);
+      setAlerts([]);
       calculateKPIs(newResearchers);
     },
     [calculateKPIs]
@@ -101,9 +113,12 @@ export const Dashboard = () => {
 
   const handleFollowerUpload = useCallback(
     (data: string[][]) => {
-      // Expect: handle
+      // Expect: handle or URL
       const followerHandles = new Set(
-        data.slice(1).map((row) => row[0]?.replace("@", "").toLowerCase())
+        data
+          .slice(1)
+          .map((row) => extractHandle(row[0]).toLowerCase())
+          .filter((h) => h !== "")
       );
 
       setResearchers((prev) => {
@@ -138,11 +153,21 @@ export const Dashboard = () => {
 
   const handleNotificationUpload = useCallback(
     (data: string[][]) => {
-      // Expect: handle, type (like/repost/reply)
-      const interactions = data.slice(1).map((row) => ({
-        handle: row[0]?.replace("@", "").toLowerCase(),
-        type: row[1]?.toLowerCase() as "like" | "repost" | "reply",
-      }));
+      // Parse Twitter/X notification export format:
+      // Column 0: Profile URL (e.g., https://x.com/username)
+      // Column 4: Action text (e.g., "liked your post", "reposted your post")
+      // Column 7: Reply indicator (e.g., "Replying to...")
+      const interactions = data
+        .slice(1)
+        .map((row) => {
+          const handle = extractHandle(row[0]);
+          const type = detectInteractionType(row[4] || "", row[7] || "");
+          return { handle: handle.toLowerCase(), type };
+        })
+        .filter(({ handle, type }) => handle !== "" && type !== null) as Array<{
+        handle: string;
+        type: "like" | "repost" | "reply";
+      }>;
 
       const interactionCounts: Record<
         string,
@@ -271,17 +296,17 @@ export const Dashboard = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <UploadSection
               title="Target Researchers"
-              description="CSV with handle, name columns"
+              description="CSV with usernames or X profile URLs"
               onUpload={handleTargetUpload}
             />
             <UploadSection
               title="Follower List"
-              description="CSV with handle column"
+              description="CSV with usernames or X profile URLs"
               onUpload={handleFollowerUpload}
             />
             <UploadSection
               title="Recent Notifications"
-              description="CSV with handle, type (like/repost/reply)"
+              description="Twitter/X notification export CSV"
               onUpload={handleNotificationUpload}
             />
           </div>
