@@ -8,17 +8,12 @@ import { ThemeToggle } from "./ThemeToggle";
 import { HowToUseGuide } from "./HowToUseGuide";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
 import { BarChart3, Target } from "lucide-react";
-
-// localStorage keys
-const STORAGE_KEYS = {
-  RESEARCHERS: "gi_researchers",
-  ALERTS: "gi_alerts",
-  TOTAL_FOLLOWERS: "gi_total_followers",
-  LAST_UPDATED: "gi_last_updated",
-};
-
-// Max alerts to keep in storage
-const MAX_ALERTS = 100;
+import {
+  loadData,
+  saveResearchers,
+  saveAlerts,
+  saveTotalFollowers,
+} from "@/lib/dataService";
 
 // Helper function to extract username from Twitter/X URL or handle
 const extractHandle = (input: string): string => {
@@ -47,35 +42,11 @@ const detectInteractionType = (
   return null;
 };
 
-// Load data from localStorage
-const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
-  try {
-    const stored = localStorage.getItem(key);
-    return stored ? JSON.parse(stored) : defaultValue;
-  } catch {
-    return defaultValue;
-  }
-};
-
-// Save data to localStorage
-const saveToStorage = <T,>(key: string, data: T): void => {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (e) {
-    console.error("Failed to save to localStorage:", e);
-  }
-};
-
 export const Dashboard = () => {
-  const [researchers, setResearchers] = useState<Researcher[]>(() =>
-    loadFromStorage(STORAGE_KEYS.RESEARCHERS, [])
-  );
-  const [alerts, setAlerts] = useState<AlertItem[]>(() =>
-    loadFromStorage(STORAGE_KEYS.ALERTS, [])
-  );
-  const [totalFollowers, setTotalFollowers] = useState<number>(() =>
-    loadFromStorage(STORAGE_KEYS.TOTAL_FOLLOWERS, 0)
-  );
+  const [researchers, setResearchers] = useState<Researcher[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [totalFollowers, setTotalFollowers] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState(true);
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -87,6 +58,18 @@ export const Dashboard = () => {
     totalFollowers: 0,
     reachedCount: 0,
   });
+
+  // Load data on mount
+  useEffect(() => {
+    const load = async () => {
+      const data = await loadData();
+      setResearchers(data.researchers);
+      setAlerts(data.alerts);
+      setTotalFollowers(data.totalFollowers);
+      setIsLoading(false);
+    };
+    load();
+  }, []);
 
   const calculateKPIs = useCallback(
     (data: Researcher[], followers: number = totalFollowers) => {
@@ -129,27 +112,33 @@ export const Dashboard = () => {
     [totalFollowers]
   );
 
-  // Save researchers to localStorage whenever they change
+  // Save researchers whenever they change
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.RESEARCHERS, researchers);
-    saveToStorage(STORAGE_KEYS.LAST_UPDATED, new Date().toISOString());
-  }, [researchers]);
+    if (!isLoading && researchers.length > 0) {
+      saveResearchers(researchers);
+    }
+  }, [researchers, isLoading]);
 
-  // Save alerts to localStorage (keep only recent ones)
+  // Save alerts whenever they change
   useEffect(() => {
-    const trimmedAlerts = alerts.slice(0, MAX_ALERTS);
-    saveToStorage(STORAGE_KEYS.ALERTS, trimmedAlerts);
-  }, [alerts]);
+    if (!isLoading) {
+      saveAlerts(alerts);
+    }
+  }, [alerts, isLoading]);
 
-  // Save total followers to localStorage
+  // Save total followers whenever it changes
   useEffect(() => {
-    saveToStorage(STORAGE_KEYS.TOTAL_FOLLOWERS, totalFollowers);
-  }, [totalFollowers]);
+    if (!isLoading && totalFollowers > 0) {
+      saveTotalFollowers(totalFollowers);
+    }
+  }, [totalFollowers, isLoading]);
 
-  // Calculate KPIs on initial load
+  // Calculate KPIs when data is loaded
   useEffect(() => {
-    calculateKPIs(researchers, totalFollowers);
-  }, []);
+    if (!isLoading) {
+      calculateKPIs(researchers, totalFollowers);
+    }
+  }, [isLoading, researchers.length]);
 
   const handleTargetUpload = useCallback(
     (data: string[][]) => {
