@@ -7,7 +7,9 @@ import { NewestReached } from "./NewestReached";
 import { ThemeToggle } from "./ThemeToggle";
 import { HowToUseGuide } from "./HowToUseGuide";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
-import { BarChart3, Target } from "lucide-react";
+import { BarChart3, Target, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   loadData,
   saveResearchers,
@@ -48,6 +50,7 @@ export const Dashboard = () => {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [totalFollowers, setTotalFollowers] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [newHandle, setNewHandle] = useState("");
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -331,6 +334,49 @@ export const Dashboard = () => {
     [calculateKPIs]
   );
 
+  // Add a single researcher manually
+  const handleAddResearcher = useCallback(() => {
+    const handle = extractHandle(newHandle);
+    if (!handle) return;
+
+    setResearchers((prev) => {
+      // Check if already exists
+      if (prev.some((r) => r.handle.toLowerCase() === handle.toLowerCase())) {
+        return prev;
+      }
+
+      const newResearcher: Researcher = {
+        id: `researcher-manual-${Date.now()}`,
+        handle,
+        name: handle,
+        isFollowing: false,
+        likes: 0,
+        reposts: 0,
+        replies: 0,
+        lastInteraction: null,
+        isHot: false,
+      };
+
+      const updated = [...prev, newResearcher];
+      calculateKPIs(updated);
+      return updated;
+    });
+
+    setNewHandle("");
+  }, [newHandle, calculateKPIs]);
+
+  // Delete a researcher
+  const handleDeleteResearcher = useCallback(
+    (id: string) => {
+      setResearchers((prev) => {
+        const updated = prev.filter((r) => r.id !== id);
+        calculateKPIs(updated);
+        return updated;
+      });
+    },
+    [calculateKPIs]
+  );
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
@@ -417,18 +463,40 @@ export const Dashboard = () => {
 
         {/* Researcher Table */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Target className="w-5 h-5 text-muted-foreground" />
-            <h2 className="text-lg font-semibold text-foreground">
-              Target Researchers
-            </h2>
-            {researchers.length > 0 && (
-              <span className="bg-muted text-muted-foreground text-xs font-medium px-2 py-0.5 rounded-full">
-                {researchers.length}
-              </span>
-            )}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-muted-foreground" />
+              <h2 className="text-lg font-semibold text-foreground">
+                Target Researchers
+              </h2>
+              {researchers.length > 0 && (
+                <span className="bg-muted text-muted-foreground text-xs font-medium px-2 py-0.5 rounded-full">
+                  {researchers.length}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="@handle or URL"
+                value={newHandle}
+                onChange={(e) => setNewHandle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddResearcher()}
+                className="w-48 h-9"
+              />
+              <Button
+                size="sm"
+                onClick={handleAddResearcher}
+                disabled={!newHandle.trim()}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add
+              </Button>
+            </div>
           </div>
-          <ResearcherTable researchers={researchers} />
+          <ResearcherTable
+            researchers={researchers}
+            onDelete={handleDeleteResearcher}
+          />
         </section>
       </main>
     </div>
