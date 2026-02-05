@@ -4,7 +4,7 @@ import { Upload } from "lucide-react";
 interface UploadSectionProps {
   title: string;
   description: string;
-  onUpload: (data: string[][]) => void;
+  onUpload: (data: string[][]) => void | Promise<void>;
   accept?: string;
 }
 

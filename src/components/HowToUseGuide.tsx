@@ -29,39 +29,37 @@ export const HowToUseGuide = () => {
           <div className="space-y-2">
             <h4 className="font-semibold text-foreground">1. Upload Target Researchers</h4>
             <p className="text-muted-foreground">
-              Upload a CSV file with two columns: <code className="bg-muted px-1 rounded">handle</code> and <code className="bg-muted px-1 rounded">name</code>. 
-              This is your list of AI researchers you want to track.
+              Upload a CSV with Twitter/X usernames (or profile URLs). Optionally include a name column.
             </p>
             <div className="bg-muted p-2 rounded text-xs font-mono">
               handle,name<br />
               ylecun,Yann LeCun<br />
-              AndrewYNg,Andrew Ng
+              https://x.com/AndrewYNg,Andrew Ng
             </div>
           </div>
 
           <div className="space-y-2">
             <h4 className="font-semibold text-foreground">2. Upload Follower List</h4>
             <p className="text-muted-foreground">
-              Upload a CSV with a single <code className="bg-muted px-1 rounded">handle</code> column containing your current followers. 
+              Upload a CSV with usernames or profile URLs of your current followers.
               This updates the "Following" status for each target.
             </p>
             <div className="bg-muted p-2 rounded text-xs font-mono">
               handle<br />
               ylecun<br />
-              demis_hassabis
+              https://x.com/demis_hassabis
             </div>
           </div>
 
           <div className="space-y-2">
             <h4 className="font-semibold text-foreground">3. Upload Recent Notifications</h4>
             <p className="text-muted-foreground">
-              Upload a CSV with <code className="bg-muted px-1 rounded">handle</code> and <code className="bg-muted px-1 rounded">type</code> columns. 
-              Type can be: <code className="bg-muted px-1 rounded">like</code>, <code className="bg-muted px-1 rounded">repost</code>, or <code className="bg-muted px-1 rounded">reply</code>.
+              Upload a Twitter/X notification export CSV. The system auto-detects likes, reposts, and replies from column data.
             </p>
-            <div className="bg-muted p-2 rounded text-xs font-mono">
-              handle,type<br />
-              ylecun,like<br />
-              AndrewYNg,repost
+            <div className="bg-muted p-2 rounded text-xs font-mono text-[10px]">
+              Col 1: https://x.com/user<br />
+              Col 5: "liked your post" or "reposted..."<br />
+              Col 8: "Replying to..." (for replies)
             </div>
           </div>
 

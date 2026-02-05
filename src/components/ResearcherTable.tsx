@@ -8,13 +8,15 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Check, X, Flame, Heart, Repeat2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Check, X, Flame, Heart, Repeat2, Trash2 } from "lucide-react";
 
 interface ResearcherTableProps {
   researchers: Researcher[];
+  onDelete?: (id: string) => void;
 }
 
-export const ResearcherTable = ({ researchers }: ResearcherTableProps) => {
+export const ResearcherTable = ({ researchers, onDelete }: ResearcherTableProps) => {
   if (researchers.length === 0) {
     return (
       <div className="bg-card border border-border rounded-xl p-12 text-center">
@@ -43,6 +45,7 @@ export const ResearcherTable = ({ researchers }: ResearcherTableProps) => {
               </div>
             </TableHead>
             <TableHead className="text-muted-foreground font-medium">Status</TableHead>
+            {onDelete && <TableHead className="w-10"></TableHead>}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -106,6 +109,18 @@ export const ResearcherTable = ({ researchers }: ResearcherTableProps) => {
                     </Badge>
                   )}
                 </TableCell>
+                {onDelete && (
+                  <TableCell>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                      onClick={() => onDelete(researcher.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}

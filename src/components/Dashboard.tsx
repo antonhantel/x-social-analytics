@@ -7,33 +7,50 @@ import { NewestReached } from "./NewestReached";
 import { ThemeToggle } from "./ThemeToggle";
 import { HowToUseGuide } from "./HowToUseGuide";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
-import { BarChart3, Target } from "lucide-react";
+import { BarChart3, Target, Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  loadData,
+  saveResearchers,
+  saveAlerts,
+  saveTotalFollowers,
+  processNotificationsWithDedup,
+} from "@/lib/dataService";
 
-// Dummy data for demonstration
-const DUMMY_RESEARCHERS: Researcher[] = [
-  { id: "1", handle: "ylecun", name: "Yann LeCun", isFollowing: true, likes: 12, reposts: 3, replies: 5, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 8, previousReposts: 2, previousReplies: 3 },
-  { id: "2", handle: "kaboris", name: "Kai-Fu Lee", isFollowing: true, likes: 8, reposts: 2, replies: 1, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 5, previousReposts: 1, previousReplies: 0 },
-  { id: "3", handle: "sama", name: "Sam Altman", isFollowing: false, likes: 3, reposts: 1, replies: 0, lastInteraction: null, isHot: false },
-  { id: "4", handle: "demaboris", name: "Demis Hassabis", isFollowing: true, likes: 15, reposts: 4, replies: 3, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 10, previousReposts: 2, previousReplies: 1 },
-  { id: "5", handle: "fchollet", name: "François Chollet", isFollowing: true, likes: 6, reposts: 2, replies: 2, lastInteraction: new Date().toISOString(), isHot: false, previousLikes: 6, previousReposts: 2, previousReplies: 2 },
-  { id: "6", handle: "jeffdean", name: "Jeff Dean", isFollowing: false, likes: 2, reposts: 0, replies: 1, lastInteraction: null, isHot: false },
-  { id: "7", handle: "hardmaru", name: "David Ha", isFollowing: true, likes: 9, reposts: 3, replies: 4, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 5, previousReposts: 1, previousReplies: 2 },
-  { id: "8", handle: "goodfellow_ian", name: "Ian Goodfellow", isFollowing: false, likes: 1, reposts: 0, replies: 0, lastInteraction: null, isHot: false },
-  { id: "9", handle: "AndrewYNg", name: "Andrew Ng", isFollowing: true, likes: 11, reposts: 5, replies: 2, lastInteraction: new Date().toISOString(), isHot: false, previousLikes: 11, previousReposts: 5, previousReplies: 2 },
-  { id: "10", handle: "ilozhinska", name: "Ilya Sutskever", isFollowing: true, likes: 7, reposts: 1, replies: 3, lastInteraction: new Date().toISOString(), isHot: true, previousLikes: 3, previousReposts: 0, previousReplies: 1 },
-];
+// Helper function to extract username from Twitter/X URL or handle
+const extractHandle = (input: string): string => {
+  if (!input) return "";
+  // Handle URLs like https://x.com/username or https://twitter.com/username
+  const urlMatch = input.match(/(?:x\.com|twitter\.com)\/([^\/\?\s]+)/i);
+  if (urlMatch) {
+    return urlMatch[1].replace("@", "");
+  }
+  // Handle plain usernames with or without @
+  return input.replace("@", "").trim();
+};
 
-const DUMMY_ALERTS: AlertItem[] = [
-  { id: "a1", handle: "ylecun", name: "Yann LeCun", type: "like", timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString() },
-  { id: "a2", handle: "demaboris", name: "Demis Hassabis", type: "new_follow", timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString() },
-  { id: "a3", handle: "hardmaru", name: "David Ha", type: "repost", timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-  { id: "a4", handle: "kaboris", name: "Kai-Fu Lee", type: "reply", timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString() },
-  { id: "a5", handle: "ilozhinska", name: "Ilya Sutskever", type: "like", timestamp: new Date(Date.now() - 1000 * 60 * 60).toISOString() },
-];
+// Helper function to detect interaction type from notification text
+const detectInteractionType = (
+  col4: string,
+  col7: string
+): "like" | "repost" | "reply" | null => {
+  const col4Lower = (col4 || "").toLowerCase();
+  const col7Lower = (col7 || "").toLowerCase();
+
+  if (col4Lower.includes("liked")) return "like";
+  if (col4Lower.includes("repost")) return "repost";
+  if (col7Lower.includes("replying to") || col7Lower.includes("reply")) return "reply";
+
+  return null;
+};
 
 export const Dashboard = () => {
-  const [researchers, setResearchers] = useState<Researcher[]>(DUMMY_RESEARCHERS);
-  const [alerts, setAlerts] = useState<AlertItem[]>(DUMMY_ALERTS);
+  const [researchers, setResearchers] = useState<Researcher[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [totalFollowers, setTotalFollowers] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [newHandle, setNewHandle] = useState("");
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -42,69 +59,156 @@ export const Dashboard = () => {
     relevantFollowership: 0,
     relevantFollowershipDelta: 0,
     totalTargets: 0,
+    totalFollowers: 0,
+    reachedCount: 0,
   });
 
-  const calculateKPIs = useCallback((data: Researcher[]) => {
-    const total = data.length;
-    const reached = data.filter((r) => r.isFollowing).length;
-    const engaged = data.filter(
-      (r) => r.likes + r.reposts + r.replies >= 3
-    ).length;
-
-    const prevReached = data.filter((r) => r.previousIsFollowing).length;
-    const prevEngaged = data.filter(
-      (r) =>
-        (r.previousLikes || 0) +
-          (r.previousReposts || 0) +
-          (r.previousReplies || 0) >=
-        3
-    ).length;
-
-    setKpis({
-      targetsReached: total > 0 ? Math.round((reached / total) * 100) : 0,
-      targetsReachedDelta:
-        total > 0 ? Math.round(((reached - prevReached) / total) * 100) : 0,
-      heavilyEngaged: total > 0 ? Math.round((engaged / total) * 100) : 0,
-      heavilyEngagedDelta:
-        total > 0 ? Math.round(((engaged - prevEngaged) / total) * 100) : 0,
-      relevantFollowership: reached,
-      relevantFollowershipDelta: reached - prevReached,
-      totalTargets: total,
-    });
-  }, []);
-
-  // Calculate KPIs on initial load with dummy data
+  // Load data on mount
   useEffect(() => {
-    calculateKPIs(researchers);
+    const load = async () => {
+      const data = await loadData();
+      setResearchers(data.researchers);
+      setAlerts(data.alerts);
+      setTotalFollowers(data.totalFollowers);
+      setIsLoading(false);
+    };
+    load();
   }, []);
+
+  const calculateKPIs = useCallback(
+    (data: Researcher[], followers: number = totalFollowers) => {
+      const total = data.length;
+      const reached = data.filter((r) => r.isFollowing).length;
+      const engaged = data.filter(
+        (r) => r.likes + r.reposts + r.replies >= 3
+      ).length;
+
+      const prevReached = data.filter((r) => r.previousIsFollowing).length;
+      const prevEngaged = data.filter(
+        (r) =>
+          (r.previousLikes || 0) +
+            (r.previousReposts || 0) +
+            (r.previousReplies || 0) >=
+          3
+      ).length;
+
+      // Relevant Followership = reached / total followers (as percentage)
+      const relevantPct =
+        followers > 0 ? Math.round((reached / followers) * 100 * 10) / 10 : 0;
+      const prevRelevantPct =
+        followers > 0 ? Math.round((prevReached / followers) * 100 * 10) / 10 : 0;
+
+      setKpis({
+        targetsReached: total > 0 ? Math.round((reached / total) * 100) : 0,
+        targetsReachedDelta:
+          total > 0 ? Math.round(((reached - prevReached) / total) * 100) : 0,
+        heavilyEngaged: total > 0 ? Math.round((engaged / total) * 100) : 0,
+        heavilyEngagedDelta:
+          total > 0 ? Math.round(((engaged - prevEngaged) / total) * 100) : 0,
+        relevantFollowership: relevantPct,
+        relevantFollowershipDelta:
+          Math.round((relevantPct - prevRelevantPct) * 10) / 10,
+        totalTargets: total,
+        totalFollowers: followers,
+        reachedCount: reached,
+      });
+    },
+    [totalFollowers]
+  );
+
+  // Save researchers whenever they change
+  useEffect(() => {
+    if (!isLoading && researchers.length > 0) {
+      saveResearchers(researchers);
+    }
+  }, [researchers, isLoading]);
+
+  // Save alerts whenever they change
+  useEffect(() => {
+    if (!isLoading) {
+      saveAlerts(alerts);
+    }
+  }, [alerts, isLoading]);
+
+  // Save total followers whenever it changes
+  useEffect(() => {
+    if (!isLoading && totalFollowers > 0) {
+      saveTotalFollowers(totalFollowers);
+    }
+  }, [totalFollowers, isLoading]);
+
+  // Calculate KPIs when data is loaded
+  useEffect(() => {
+    if (!isLoading) {
+      calculateKPIs(researchers, totalFollowers);
+    }
+  }, [isLoading, researchers.length]);
 
   const handleTargetUpload = useCallback(
     (data: string[][]) => {
-      // Skip header row, expect: handle, name
-      const newResearchers: Researcher[] = data.slice(1).map((row, index) => ({
-        id: `researcher-${index}-${Date.now()}`,
-        handle: row[0]?.replace("@", "") || "",
-        name: row[1] || row[0]?.replace("@", "") || "",
-        isFollowing: false,
-        likes: 0,
-        reposts: 0,
-        replies: 0,
-        lastInteraction: null,
-        isHot: false,
-      }));
+      // Skip header row, expect: handle (or URL), optional name
+      // Merge with existing researchers - don't lose data
+      setResearchers((prev) => {
+        const existingByHandle = new Map(
+          prev.map((r) => [r.handle.toLowerCase(), r])
+        );
 
-      setResearchers(newResearchers);
-      calculateKPIs(newResearchers);
+        const uploadedHandles = new Set<string>();
+
+        data
+          .slice(1)
+          .filter((row) => row[0] && row[0].trim() !== "")
+          .forEach((row, index) => {
+            const handle = extractHandle(row[0]);
+            const handleLower = handle.toLowerCase();
+            uploadedHandles.add(handleLower);
+
+            if (!existingByHandle.has(handleLower)) {
+              // New researcher - add them
+              existingByHandle.set(handleLower, {
+                id: `researcher-${index}-${Date.now()}`,
+                handle,
+                name: row[1]?.trim() || handle,
+                isFollowing: false,
+                likes: 0,
+                reposts: 0,
+                replies: 0,
+                lastInteraction: null,
+                isHot: false,
+              });
+            } else {
+              // Existing researcher - update name if provided
+              const existing = existingByHandle.get(handleLower)!;
+              if (row[1]?.trim()) {
+                existingByHandle.set(handleLower, {
+                  ...existing,
+                  name: row[1].trim(),
+                });
+              }
+            }
+          });
+
+        const updated = Array.from(existingByHandle.values());
+        calculateKPIs(updated);
+        return updated;
+      });
     },
     [calculateKPIs]
   );
 
   const handleFollowerUpload = useCallback(
     (data: string[][]) => {
-      // Expect: handle
+      // Expect: handle or URL
       const followerHandles = new Set(
-        data.slice(1).map((row) => row[0]?.replace("@", "").toLowerCase())
+        data
+          .slice(1)
+          .map((row) => extractHandle(row[0]).toLowerCase())
+          .filter((h) => h !== "")
       );
+
+      // Update total followers count
+      const newTotalFollowers = followerHandles.size;
+      setTotalFollowers(newTotalFollowers);
 
       setResearchers((prev) => {
         const updated = prev.map((r) => ({
@@ -129,7 +233,7 @@ export const Dashboard = () => {
           }));
 
         setAlerts((prevAlerts) => [...newFollowAlerts, ...prevAlerts]);
-        calculateKPIs(updated);
+        calculateKPIs(updated, newTotalFollowers);
         return updated;
       });
     },
@@ -137,19 +241,39 @@ export const Dashboard = () => {
   );
 
   const handleNotificationUpload = useCallback(
-    (data: string[][]) => {
-      // Expect: handle, type (like/repost/reply)
-      const interactions = data.slice(1).map((row) => ({
-        handle: row[0]?.replace("@", "").toLowerCase(),
-        type: row[1]?.toLowerCase() as "like" | "repost" | "reply",
-      }));
+    async (data: string[][]) => {
+      // Parse Twitter/X notification export format:
+      // Column 0: Profile URL (e.g., https://x.com/username)
+      // Column 4: Action text (e.g., "liked your post", "reposted your post")
+      // Column 7: Reply indicator (e.g., "Replying to...")
+      const rawNotifications = data
+        .slice(1)
+        .map((row) => {
+          const handle = extractHandle(row[0]);
+          const type = detectInteractionType(row[4] || "", row[7] || "");
+          const rawRow = row.join("|"); // Join row for hash uniqueness
+          return { handle: handle.toLowerCase(), type, rawRow };
+        })
+        .filter(
+          (n): n is { handle: string; type: "like" | "repost" | "reply"; rawRow: string } =>
+            n.handle !== "" && n.type !== null
+        );
 
+      // Deduplicate against previously seen notifications
+      const newNotifications = await processNotificationsWithDedup(rawNotifications);
+
+      if (newNotifications.length === 0) {
+        console.log("No new notifications to process");
+        return;
+      }
+
+      // Count interactions from deduplicated notifications
       const interactionCounts: Record<
         string,
         { likes: number; reposts: number; replies: number }
       > = {};
 
-      interactions.forEach(({ handle, type }) => {
+      newNotifications.forEach(({ handle, type }) => {
         if (!handle) return;
         if (!interactionCounts[handle]) {
           interactionCounts[handle] = { likes: 0, reposts: 0, replies: 0 };
@@ -187,7 +311,7 @@ export const Dashboard = () => {
 
         // Generate alerts for new interactions
         const newAlerts: AlertItem[] = [];
-        interactions.forEach(({ handle, type }) => {
+        newNotifications.forEach(({ handle, type }) => {
           const researcher = prev.find(
             (r) => r.handle.toLowerCase() === handle
           );
@@ -203,6 +327,49 @@ export const Dashboard = () => {
         });
 
         setAlerts((prevAlerts) => [...newAlerts, ...prevAlerts]);
+        calculateKPIs(updated);
+        return updated;
+      });
+    },
+    [calculateKPIs]
+  );
+
+  // Add a single researcher manually
+  const handleAddResearcher = useCallback(() => {
+    const handle = extractHandle(newHandle);
+    if (!handle) return;
+
+    setResearchers((prev) => {
+      // Check if already exists
+      if (prev.some((r) => r.handle.toLowerCase() === handle.toLowerCase())) {
+        return prev;
+      }
+
+      const newResearcher: Researcher = {
+        id: `researcher-manual-${Date.now()}`,
+        handle,
+        name: handle,
+        isFollowing: false,
+        likes: 0,
+        reposts: 0,
+        replies: 0,
+        lastInteraction: null,
+        isHot: false,
+      };
+
+      const updated = [...prev, newResearcher];
+      calculateKPIs(updated);
+      return updated;
+    });
+
+    setNewHandle("");
+  }, [newHandle, calculateKPIs]);
+
+  // Delete a researcher
+  const handleDeleteResearcher = useCallback(
+    (id: string) => {
+      setResearchers((prev) => {
+        const updated = prev.filter((r) => r.id !== id);
         calculateKPIs(updated);
         return updated;
       });
@@ -244,7 +411,7 @@ export const Dashboard = () => {
               title="Targets Reached"
               value={`${kpis.targetsReached}%`}
               delta={kpis.targetsReachedDelta}
-              subtitle={`${kpis.relevantFollowership} of ${kpis.totalTargets} following`}
+              subtitle={`${kpis.reachedCount} of ${kpis.totalTargets} targets`}
             />
             <KPICard
               title="Heavily Engaged"
@@ -254,9 +421,9 @@ export const Dashboard = () => {
             />
             <KPICard
               title="Relevant Followership"
-              value={`${kpis.relevantFollowership}`}
+              value={`${kpis.relevantFollowership}%`}
               delta={kpis.relevantFollowershipDelta}
-              subtitle="AI researchers following"
+              subtitle={`${kpis.reachedCount} of ${kpis.totalFollowers} followers`}
             />
           </div>
         </section>
@@ -271,17 +438,17 @@ export const Dashboard = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <UploadSection
               title="Target Researchers"
-              description="CSV with handle, name columns"
+              description="CSV with usernames or X profile URLs"
               onUpload={handleTargetUpload}
             />
             <UploadSection
               title="Follower List"
-              description="CSV with handle column"
+              description="CSV with usernames or X profile URLs"
               onUpload={handleFollowerUpload}
             />
             <UploadSection
               title="Recent Notifications"
-              description="CSV with handle, type (like/repost/reply)"
+              description="Twitter/X notification export CSV"
               onUpload={handleNotificationUpload}
             />
           </div>
@@ -296,18 +463,40 @@ export const Dashboard = () => {
 
         {/* Researcher Table */}
         <section>
-          <div className="flex items-center gap-2 mb-4">
-            <Target className="w-5 h-5 text-muted-foreground" />
-            <h2 className="text-lg font-semibold text-foreground">
-              Target Researchers
-            </h2>
-            {researchers.length > 0 && (
-              <span className="bg-muted text-muted-foreground text-xs font-medium px-2 py-0.5 rounded-full">
-                {researchers.length}
-              </span>
-            )}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-muted-foreground" />
+              <h2 className="text-lg font-semibold text-foreground">
+                Target Researchers
+              </h2>
+              {researchers.length > 0 && (
+                <span className="bg-muted text-muted-foreground text-xs font-medium px-2 py-0.5 rounded-full">
+                  {researchers.length}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="@handle or URL"
+                value={newHandle}
+                onChange={(e) => setNewHandle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddResearcher()}
+                className="w-48 h-9"
+              />
+              <Button
+                size="sm"
+                onClick={handleAddResearcher}
+                disabled={!newHandle.trim()}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add
+              </Button>
+            </div>
           </div>
-          <ResearcherTable researchers={researchers} />
+          <ResearcherTable
+            researchers={researchers}
+            onDelete={handleDeleteResearcher}
+          />
         </section>
       </main>
     </div>
