@@ -13,6 +13,7 @@ import {
   saveResearchers,
   saveAlerts,
   saveTotalFollowers,
+  processNotificationsWithDedup,
 } from "@/lib/dataService";
 
 // Helper function to extract username from Twitter/X URL or handle
@@ -237,29 +238,39 @@ export const Dashboard = () => {
   );
 
   const handleNotificationUpload = useCallback(
-    (data: string[][]) => {
+    async (data: string[][]) => {
       // Parse Twitter/X notification export format:
       // Column 0: Profile URL (e.g., https://x.com/username)
       // Column 4: Action text (e.g., "liked your post", "reposted your post")
       // Column 7: Reply indicator (e.g., "Replying to...")
-      const interactions = data
+      const rawNotifications = data
         .slice(1)
         .map((row) => {
           const handle = extractHandle(row[0]);
           const type = detectInteractionType(row[4] || "", row[7] || "");
-          return { handle: handle.toLowerCase(), type };
+          const rawRow = row.join("|"); // Join row for hash uniqueness
+          return { handle: handle.toLowerCase(), type, rawRow };
         })
-        .filter(({ handle, type }) => handle !== "" && type !== null) as Array<{
-        handle: string;
-        type: "like" | "repost" | "reply";
-      }>;
+        .filter(
+          (n): n is { handle: string; type: "like" | "repost" | "reply"; rawRow: string } =>
+            n.handle !== "" && n.type !== null
+        );
 
+      // Deduplicate against previously seen notifications
+      const newNotifications = await processNotificationsWithDedup(rawNotifications);
+
+      if (newNotifications.length === 0) {
+        console.log("No new notifications to process");
+        return;
+      }
+
+      // Count interactions from deduplicated notifications
       const interactionCounts: Record<
         string,
         { likes: number; reposts: number; replies: number }
       > = {};
 
-      interactions.forEach(({ handle, type }) => {
+      newNotifications.forEach(({ handle, type }) => {
         if (!handle) return;
         if (!interactionCounts[handle]) {
           interactionCounts[handle] = { likes: 0, reposts: 0, replies: 0 };
@@ -297,7 +308,7 @@ export const Dashboard = () => {
 
         // Generate alerts for new interactions
         const newAlerts: AlertItem[] = [];
-        interactions.forEach(({ handle, type }) => {
+        newNotifications.forEach(({ handle, type }) => {
           const researcher = prev.find(
             (r) => r.handle.toLowerCase() === handle
           );
