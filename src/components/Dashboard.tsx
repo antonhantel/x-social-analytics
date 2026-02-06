@@ -176,12 +176,12 @@ export const Dashboard = () => {
     }
   }, [totalFollowers, isLoading]);
 
-  // Calculate KPIs when data is loaded
+  // Calculate KPIs when data is loaded or totalFollowers changes
   useEffect(() => {
     if (!isLoading) {
       calculateKPIs(researchers, totalFollowers);
     }
-  }, [isLoading, researchers.length]);
+  }, [isLoading, researchers.length, totalFollowers, calculateKPIs]);
 
   const handleTargetUpload = useCallback(
     (data: string[][]) => {
