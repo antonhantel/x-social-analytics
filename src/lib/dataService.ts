@@ -261,6 +261,7 @@ export const saveNotificationHashes = async (
 // Process notifications with deduplication
 // Returns only NEW notifications (not seen before)
 // Stops processing when 3+ consecutive duplicates are found (overlap zone)
+// NOTE: Does NOT save hashes - caller must call markNotificationsAsProcessed for matched ones
 export interface ProcessedNotification {
   handle: string;
   type: "like" | "repost" | "reply";
@@ -307,21 +308,27 @@ export const processNotificationsWithDedup = async (
     }
   }
 
-  // Save new notification hashes
-  if (newNotifications.length > 0) {
-    await saveNotificationHashes(
-      newNotifications.map((n) => ({
-        hash: n.hash,
-        handle: n.handle,
-        actionType: n.type,
-        rawRow: n.rawRow,
-      }))
-    );
-  }
-
   console.log(
     `Processed ${notifications.length} notifications, ${newNotifications.length} new, ${notifications.length - newNotifications.length} duplicates/skipped`
   );
 
   return newNotifications;
+};
+
+// Mark notifications as processed (call this AFTER matching to researchers)
+export const markNotificationsAsProcessed = async (
+  notifications: ProcessedNotification[]
+): Promise<void> => {
+  if (notifications.length === 0) return;
+
+  await saveNotificationHashes(
+    notifications.map((n) => ({
+      hash: n.hash,
+      handle: n.handle,
+      actionType: n.type,
+      rawRow: n.rawRow,
+    }))
+  );
+
+  console.log(`Marked ${notifications.length} notifications as processed`);
 };

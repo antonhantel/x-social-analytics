@@ -17,6 +17,8 @@ import {
   saveAlerts,
   saveTotalFollowers,
   processNotificationsWithDedup,
+  markNotificationsAsProcessed,
+  ProcessedNotification,
 } from "@/lib/dataService";
 import { isSupabaseConfigured, testConnection } from "@/lib/supabase";
 
@@ -316,7 +318,7 @@ export const Dashboard = () => {
         return;
       }
 
-      // Deduplicate against previously seen notifications
+      // Deduplicate against previously seen notifications (does NOT save hashes yet)
       const newNotifications = await processNotificationsWithDedup(rawNotifications);
       const skippedCount = rawNotifications.length - newNotifications.length;
 
@@ -328,24 +330,8 @@ export const Dashboard = () => {
         return;
       }
 
-      // Count interactions from deduplicated notifications
-      const interactionCounts: Record<
-        string,
-        { likes: number; reposts: number; replies: number }
-      > = {};
-
-      newNotifications.forEach(({ handle, type }) => {
-        if (!handle) return;
-        if (!interactionCounts[handle]) {
-          interactionCounts[handle] = { likes: 0, reposts: 0, replies: 0 };
-        }
-        if (type === "like") interactionCounts[handle].likes++;
-        else if (type === "repost") interactionCounts[handle].reposts++;
-        else if (type === "reply") interactionCounts[handle].replies++;
-      });
-
-      let matchedCount = 0;
-
+      // Get current researchers to match against
+      // We need to do this outside setResearchers to properly track matched notifications
       setResearchers((prev) => {
         if (prev.length === 0) {
           toast({
@@ -356,11 +342,45 @@ export const Dashboard = () => {
           return prev;
         }
 
+        // Find which notifications match our researchers
+        const researcherHandles = new Set(prev.map((r) => r.handle.toLowerCase()));
+        const matchedNotifications: ProcessedNotification[] = [];
+        const unmatchedNotifications: ProcessedNotification[] = [];
+
+        newNotifications.forEach((n) => {
+          if (researcherHandles.has(n.handle)) {
+            matchedNotifications.push(n);
+          } else {
+            unmatchedNotifications.push(n);
+          }
+        });
+
+        // Only mark MATCHED notifications as processed (so unmatched can be retried after adding targets)
+        if (matchedNotifications.length > 0) {
+          markNotificationsAsProcessed(matchedNotifications);
+        }
+
+        // Count interactions from matched notifications
+        const interactionCounts: Record<
+          string,
+          { likes: number; reposts: number; replies: number }
+        > = {};
+
+        matchedNotifications.forEach(({ handle, type }) => {
+          if (!interactionCounts[handle]) {
+            interactionCounts[handle] = { likes: 0, reposts: 0, replies: 0 };
+          }
+          if (type === "like") interactionCounts[handle].likes++;
+          else if (type === "repost") interactionCounts[handle].reposts++;
+          else if (type === "reply") interactionCounts[handle].replies++;
+        });
+
+        const matchedResearcherCount = Object.keys(interactionCounts).length;
+
         const updated = prev.map((r) => {
           const counts = interactionCounts[r.handle.toLowerCase()];
           if (!counts) return r;
 
-          matchedCount++;
           const newLikes = r.likes + counts.likes;
           const newReposts = r.reposts + counts.reposts;
           const newReplies = r.replies + counts.replies;
@@ -384,7 +404,7 @@ export const Dashboard = () => {
 
         // Generate alerts for new interactions
         const newAlerts: AlertItem[] = [];
-        newNotifications.forEach(({ handle, type }) => {
+        matchedNotifications.forEach(({ handle, type }) => {
           const researcher = prev.find(
             (r) => r.handle.toLowerCase() === handle
           );
@@ -402,9 +422,19 @@ export const Dashboard = () => {
         setAlerts((prevAlerts) => [...newAlerts, ...prevAlerts]);
         calculateKPIs(updated);
 
+        const desc = [
+          `${matchedNotifications.length} matched (${matchedResearcherCount} targets)`,
+        ];
+        if (unmatchedNotifications.length > 0) {
+          desc.push(`${unmatchedNotifications.length} unmatched`);
+        }
+        if (skippedCount > 0) {
+          desc.push(`${skippedCount} duplicates`);
+        }
+
         toast({
           title: "Notifications Processed",
-          description: `${newNotifications.length} new, ${matchedCount} matched targets${skippedCount > 0 ? `, ${skippedCount} duplicates skipped` : ""}.`,
+          description: desc.join(", "),
         });
 
         return updated;
