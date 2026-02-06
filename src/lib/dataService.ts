@@ -332,3 +332,28 @@ export const markNotificationsAsProcessed = async (
 
   console.log(`Marked ${notifications.length} notifications as processed`);
 };
+
+// Reset all data
+export const resetAllData = async (): Promise<void> => {
+  // Clear localStorage
+  Object.values(STORAGE_KEYS).forEach((key) => {
+    localStorage.removeItem(key);
+  });
+
+  if (isSupabaseConfigured && supabase) {
+    try {
+      // Delete all data from tables
+      await Promise.all([
+        supabase.from("researchers").delete().neq("id", ""),
+        supabase.from("alerts").delete().neq("id", ""),
+        supabase.from("notifications_log").delete().neq("id", ""),
+        supabase.from("metadata").delete().eq("key", "state"),
+      ]);
+      console.log("All data cleared from Supabase");
+    } catch (error) {
+      console.error("Supabase reset failed:", error);
+    }
+  }
+
+  console.log("All data reset");
+};

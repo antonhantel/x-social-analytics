@@ -1,3 +1,5 @@
+export type EngagementLevel = "target" | "engaged" | "hot";
+
 export interface Researcher {
   id: string;
   handle: string;
@@ -8,11 +10,20 @@ export interface Researcher {
   replies: number;
   lastInteraction: string | null;
   isHot: boolean;
+  engagementLevel: EngagementLevel;
   previousLikes?: number;
   previousReposts?: number;
   previousReplies?: number;
   previousIsFollowing?: boolean;
 }
+
+// Helper to calculate engagement level
+export const getEngagementLevel = (r: Researcher): EngagementLevel => {
+  const totalInteractions = r.likes + r.reposts + r.replies;
+  if (totalInteractions >= 3) return "hot";
+  if (r.isFollowing || totalInteractions > 0) return "engaged";
+  return "target";
+};
 
 export interface KPIData {
   targetsReached: number;
