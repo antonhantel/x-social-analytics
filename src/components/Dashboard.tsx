@@ -7,16 +7,20 @@ import { NewestReached } from "./NewestReached";
 import { ThemeToggle } from "./ThemeToggle";
 import { HowToUseGuide } from "./HowToUseGuide";
 import { Researcher, KPIData, AlertItem } from "@/types/researcher";
-import { BarChart3, Target, Plus } from "lucide-react";
+import { BarChart3, Target, Plus, Database, Cloud, HardDrive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/hooks/use-toast";
 import {
   loadData,
   saveResearchers,
   saveAlerts,
   saveTotalFollowers,
   processNotificationsWithDedup,
+  markNotificationsAsProcessed,
+  ProcessedNotification,
 } from "@/lib/dataService";
+import { isSupabaseConfigured, testConnection } from "@/lib/supabase";
 
 // Helper function to extract username from Twitter/X URL or handle
 const extractHandle = (input: string): string => {
@@ -51,6 +55,7 @@ export const Dashboard = () => {
   const [totalFollowers, setTotalFollowers] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [newHandle, setNewHandle] = useState("");
+  const [dbStatus, setDbStatus] = useState<"checking" | "cloud" | "local">("checking");
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
     targetsReachedDelta: 0,
@@ -63,9 +68,25 @@ export const Dashboard = () => {
     reachedCount: 0,
   });
 
-  // Load data on mount
+  // Load data and check connection on mount
   useEffect(() => {
     const load = async () => {
+      // Check Supabase connection
+      if (isSupabaseConfigured) {
+        const result = await testConnection();
+        setDbStatus(result.connected ? "cloud" : "local");
+        if (!result.connected) {
+          console.warn("[Dashboard] Supabase error:", result.error);
+          toast({
+            title: "Using Local Storage",
+            description: `Cloud connection failed: ${result.error}`,
+            variant: "destructive",
+          });
+        }
+      } else {
+        setDbStatus("local");
+      }
+
       const data = await loadData();
       setResearchers(data.researchers);
       setAlerts(data.alerts);
@@ -148,12 +169,13 @@ export const Dashboard = () => {
     (data: string[][]) => {
       // Skip header row, expect: handle (or URL), optional name
       // Merge with existing researchers - don't lose data
+      let addedCount = 0;
+      let updatedCount = 0;
+
       setResearchers((prev) => {
         const existingByHandle = new Map(
           prev.map((r) => [r.handle.toLowerCase(), r])
         );
-
-        const uploadedHandles = new Set<string>();
 
         data
           .slice(1)
@@ -161,7 +183,6 @@ export const Dashboard = () => {
           .forEach((row, index) => {
             const handle = extractHandle(row[0]);
             const handleLower = handle.toLowerCase();
-            uploadedHandles.add(handleLower);
 
             if (!existingByHandle.has(handleLower)) {
               // New researcher - add them
@@ -176,6 +197,7 @@ export const Dashboard = () => {
                 lastInteraction: null,
                 isHot: false,
               });
+              addedCount++;
             } else {
               // Existing researcher - update name if provided
               const existing = existingByHandle.get(handleLower)!;
@@ -184,6 +206,7 @@ export const Dashboard = () => {
                   ...existing,
                   name: row[1].trim(),
                 });
+                updatedCount++;
               }
             }
           });
@@ -191,6 +214,12 @@ export const Dashboard = () => {
         const updated = Array.from(existingByHandle.values());
         calculateKPIs(updated);
         return updated;
+      });
+
+      // Show feedback
+      toast({
+        title: "Targets Uploaded",
+        description: `Added ${addedCount} new researcher${addedCount !== 1 ? "s" : ""}${updatedCount > 0 ? `, updated ${updatedCount}` : ""}`,
       });
     },
     [calculateKPIs]
@@ -210,16 +239,31 @@ export const Dashboard = () => {
       const newTotalFollowers = followerHandles.size;
       setTotalFollowers(newTotalFollowers);
 
+      let newFollowerCount = 0;
+      let matchedTargets = 0;
+
       setResearchers((prev) => {
-        const updated = prev.map((r) => ({
-          ...r,
-          previousIsFollowing: r.isFollowing,
-          isFollowing: followerHandles.has(r.handle.toLowerCase()),
-          isHot:
-            !r.isFollowing && followerHandles.has(r.handle.toLowerCase())
-              ? true
-              : r.isHot,
-        }));
+        if (prev.length === 0) {
+          toast({
+            title: "No Targets",
+            description: `Loaded ${newTotalFollowers} followers. Upload targets first to track matches.`,
+            variant: "default",
+          });
+          return prev;
+        }
+
+        const updated = prev.map((r) => {
+          const isNowFollowing = followerHandles.has(r.handle.toLowerCase());
+          const wasFollowing = r.isFollowing;
+          if (isNowFollowing && !wasFollowing) newFollowerCount++;
+          if (isNowFollowing) matchedTargets++;
+          return {
+            ...r,
+            previousIsFollowing: r.isFollowing,
+            isFollowing: isNowFollowing,
+            isHot: !wasFollowing && isNowFollowing ? true : r.isHot,
+          };
+        });
 
         // Generate alerts for new followers
         const newFollowAlerts: AlertItem[] = updated
@@ -234,6 +278,12 @@ export const Dashboard = () => {
 
         setAlerts((prevAlerts) => [...newFollowAlerts, ...prevAlerts]);
         calculateKPIs(updated, newTotalFollowers);
+
+        toast({
+          title: "Followers Updated",
+          description: `${newTotalFollowers} total followers. ${matchedTargets} targets reached${newFollowerCount > 0 ? `, ${newFollowerCount} new` : ""}.`,
+        });
+
         return updated;
       });
     },
@@ -259,31 +309,74 @@ export const Dashboard = () => {
             n.handle !== "" && n.type !== null
         );
 
-      // Deduplicate against previously seen notifications
-      const newNotifications = await processNotificationsWithDedup(rawNotifications);
-
-      if (newNotifications.length === 0) {
-        console.log("No new notifications to process");
+      if (rawNotifications.length === 0) {
+        toast({
+          title: "No Notifications Found",
+          description: "Could not parse any notifications from the CSV. Check the format.",
+          variant: "destructive",
+        });
         return;
       }
 
-      // Count interactions from deduplicated notifications
-      const interactionCounts: Record<
-        string,
-        { likes: number; reposts: number; replies: number }
-      > = {};
+      // Deduplicate against previously seen notifications (does NOT save hashes yet)
+      const newNotifications = await processNotificationsWithDedup(rawNotifications);
+      const skippedCount = rawNotifications.length - newNotifications.length;
 
-      newNotifications.forEach(({ handle, type }) => {
-        if (!handle) return;
-        if (!interactionCounts[handle]) {
-          interactionCounts[handle] = { likes: 0, reposts: 0, replies: 0 };
-        }
-        if (type === "like") interactionCounts[handle].likes++;
-        else if (type === "repost") interactionCounts[handle].reposts++;
-        else if (type === "reply") interactionCounts[handle].replies++;
-      });
+      if (newNotifications.length === 0) {
+        toast({
+          title: "All Duplicates",
+          description: `${skippedCount} notification${skippedCount !== 1 ? "s" : ""} already processed.`,
+        });
+        return;
+      }
 
+      // Get current researchers to match against
+      // We need to do this outside setResearchers to properly track matched notifications
       setResearchers((prev) => {
+        if (prev.length === 0) {
+          toast({
+            title: "No Targets",
+            description: `Found ${newNotifications.length} new notifications. Upload targets first to track.`,
+            variant: "default",
+          });
+          return prev;
+        }
+
+        // Find which notifications match our researchers
+        const researcherHandles = new Set(prev.map((r) => r.handle.toLowerCase()));
+        const matchedNotifications: ProcessedNotification[] = [];
+        const unmatchedNotifications: ProcessedNotification[] = [];
+
+        newNotifications.forEach((n) => {
+          if (researcherHandles.has(n.handle)) {
+            matchedNotifications.push(n);
+          } else {
+            unmatchedNotifications.push(n);
+          }
+        });
+
+        // Only mark MATCHED notifications as processed (so unmatched can be retried after adding targets)
+        if (matchedNotifications.length > 0) {
+          markNotificationsAsProcessed(matchedNotifications);
+        }
+
+        // Count interactions from matched notifications
+        const interactionCounts: Record<
+          string,
+          { likes: number; reposts: number; replies: number }
+        > = {};
+
+        matchedNotifications.forEach(({ handle, type }) => {
+          if (!interactionCounts[handle]) {
+            interactionCounts[handle] = { likes: 0, reposts: 0, replies: 0 };
+          }
+          if (type === "like") interactionCounts[handle].likes++;
+          else if (type === "repost") interactionCounts[handle].reposts++;
+          else if (type === "reply") interactionCounts[handle].replies++;
+        });
+
+        const matchedResearcherCount = Object.keys(interactionCounts).length;
+
         const updated = prev.map((r) => {
           const counts = interactionCounts[r.handle.toLowerCase()];
           if (!counts) return r;
@@ -311,7 +404,7 @@ export const Dashboard = () => {
 
         // Generate alerts for new interactions
         const newAlerts: AlertItem[] = [];
-        newNotifications.forEach(({ handle, type }) => {
+        matchedNotifications.forEach(({ handle, type }) => {
           const researcher = prev.find(
             (r) => r.handle.toLowerCase() === handle
           );
@@ -328,6 +421,22 @@ export const Dashboard = () => {
 
         setAlerts((prevAlerts) => [...newAlerts, ...prevAlerts]);
         calculateKPIs(updated);
+
+        const desc = [
+          `${matchedNotifications.length} matched (${matchedResearcherCount} targets)`,
+        ];
+        if (unmatchedNotifications.length > 0) {
+          desc.push(`${unmatchedNotifications.length} unmatched`);
+        }
+        if (skippedCount > 0) {
+          desc.push(`${skippedCount} duplicates`);
+        }
+
+        toast({
+          title: "Notifications Processed",
+          description: desc.join(", "),
+        });
+
         return updated;
       });
     },
@@ -395,7 +504,28 @@ export const Dashboard = () => {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {dbStatus !== "checking" && (
+                <div
+                  className={`flex items-center gap-1.5 text-xs px-2 py-1 rounded-full ${
+                    dbStatus === "cloud"
+                      ? "bg-green-500/10 text-green-600 dark:text-green-400"
+                      : "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
+                  }`}
+                  title={
+                    dbStatus === "cloud"
+                      ? "Connected to Supabase cloud database"
+                      : "Using local browser storage (data won't sync across devices)"
+                  }
+                >
+                  {dbStatus === "cloud" ? (
+                    <Cloud className="w-3 h-3" />
+                  ) : (
+                    <HardDrive className="w-3 h-3" />
+                  )}
+                  <span>{dbStatus === "cloud" ? "Cloud" : "Local"}</span>
+                </div>
+              )}
               <HowToUseGuide />
               <ThemeToggle />
             </div>
