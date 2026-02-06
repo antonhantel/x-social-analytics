@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Researcher } from "@/types/researcher";
+import { Researcher, getEngagementLevel } from "@/types/researcher";
 import {
   Table,
   TableBody,
@@ -71,8 +71,11 @@ export const ResearcherTable = ({ researchers, onDelete }: ResearcherTableProps)
           comparison = (a.reposts + a.replies) - (b.reposts + b.replies);
           break;
         case "status":
+          // Always calculate engagement level dynamically
           const statusOrder = { hot: 3, engaged: 2, target: 1 };
-          comparison = statusOrder[a.engagementLevel || "target"] - statusOrder[b.engagementLevel || "target"];
+          const aLevel = getEngagementLevel(a);
+          const bLevel = getEngagementLevel(b);
+          comparison = statusOrder[aLevel] - statusOrder[bLevel];
           break;
       }
 
@@ -149,7 +152,8 @@ export const ResearcherTable = ({ researchers, onDelete }: ResearcherTableProps)
             const replyRepostCount = researcher.reposts + researcher.replies;
             const prevReplyRepostCount = (researcher.previousReposts || 0) + (researcher.previousReplies || 0);
             const replyRepostDelta = replyRepostCount - prevReplyRepostCount;
-            const engagementLevel = researcher.engagementLevel || "target";
+            // Always calculate engagement level dynamically based on current data
+            const engagementLevel = getEngagementLevel(researcher);
 
             return (
               <TableRow key={researcher.id} className="border-border hover:bg-muted/50">
