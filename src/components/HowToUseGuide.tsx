@@ -54,20 +54,32 @@ export const HowToUseGuide = () => {
           <div className="space-y-2">
             <h4 className="font-semibold text-foreground">3. Upload Recent Notifications</h4>
             <p className="text-muted-foreground">
-              Upload a Twitter/X notification export CSV. The system auto-detects likes, reposts, and replies from column data.
+              Upload a Twitter/X notification export CSV. The system auto-detects likes, reposts, and replies.
             </p>
             <div className="bg-muted p-2 rounded text-xs font-mono text-[10px]">
-              Col 1: https://x.com/user<br />
+              Col 1: Profile URL (https://x.com/user)<br />
               Col 5: "liked your post" or "reposted..."<br />
               Col 8: "Replying to..." (for replies)
             </div>
+            <p className="text-muted-foreground text-xs">
+              Duplicate notifications are automatically skipped to prevent double counting.
+            </p>
           </div>
 
           <div className="space-y-2 border-t border-border pt-4">
-            <h4 className="font-semibold text-foreground">Understanding the Dashboard</h4>
+            <h4 className="font-semibold text-foreground">Understanding Status Levels</h4>
             <ul className="text-muted-foreground space-y-1 list-disc list-inside">
-              <li><span className="text-accent font-medium">Hot</span> researchers have recent new activity</li>
-              <li><span className="text-success font-medium">Reached</span> means they're following you</li>
+              <li><span className="text-muted-foreground font-medium">Target</span> - On your list, no interactions yet</li>
+              <li><span className="text-success font-medium">Engaged</span> - Following you or has 1-2 interactions</li>
+              <li><span className="text-accent font-medium">Hot</span> - Heavily engaged with 3+ total interactions</li>
+            </ul>
+          </div>
+
+          <div className="space-y-2 border-t border-border pt-4">
+            <h4 className="font-semibold text-foreground">Tips</h4>
+            <ul className="text-muted-foreground space-y-1 list-disc list-inside">
+              <li>Click column headers to sort the table</li>
+              <li>Use the Reset button at the bottom to start fresh</li>
               <li>KPIs show progress vs. previous upload</li>
             </ul>
           </div>

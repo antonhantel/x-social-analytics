@@ -6,11 +6,22 @@ import { AlertsPanel } from "./AlertsPanel";
 import { NewestReached } from "./NewestReached";
 import { ThemeToggle } from "./ThemeToggle";
 import { HowToUseGuide } from "./HowToUseGuide";
-import { Researcher, KPIData, AlertItem } from "@/types/researcher";
-import { BarChart3, Target, Plus, Database, Cloud, HardDrive } from "lucide-react";
+import { Researcher, KPIData, AlertItem, getEngagementLevel } from "@/types/researcher";
+import { BarChart3, Target, Plus, Cloud, HardDrive, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   loadData,
   saveResearchers,
@@ -18,6 +29,7 @@ import {
   saveTotalFollowers,
   processNotificationsWithDedup,
   markNotificationsAsProcessed,
+  resetAllData,
   ProcessedNotification,
 } from "@/lib/dataService";
 import { isSupabaseConfigured, testConnection } from "@/lib/supabase";
@@ -35,6 +47,11 @@ const extractHandle = (input: string): string => {
 };
 
 // Helper function to detect interaction type from notification text
+// New CSV format:
+// Col 0: Profile URL (https://x.com/username)
+// Col 3: Display name
+// Col 4: Action text ("liked your post", "reposted your post", or @username)
+// Col 7: "Replying to" indicator
 const detectInteractionType = (
   col4: string,
   col7: string
@@ -44,7 +61,7 @@ const detectInteractionType = (
 
   if (col4Lower.includes("liked")) return "like";
   if (col4Lower.includes("repost")) return "repost";
-  if (col7Lower.includes("replying to") || col7Lower.includes("reply")) return "reply";
+  if (col7Lower.includes("replying to")) return "reply";
 
   return null;
 };
@@ -55,6 +72,7 @@ export const Dashboard = () => {
   const [totalFollowers, setTotalFollowers] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [newHandle, setNewHandle] = useState("");
+  const [newName, setNewName] = useState("");
   const [dbStatus, setDbStatus] = useState<"checking" | "cloud" | "local">("checking");
   const [kpis, setKpis] = useState<KPIData>({
     targetsReached: 0,
@@ -196,6 +214,7 @@ export const Dashboard = () => {
                 replies: 0,
                 lastInteraction: null,
                 isHot: false,
+                engagementLevel: "target",
               });
               addedCount++;
             } else {
@@ -257,12 +276,15 @@ export const Dashboard = () => {
           const wasFollowing = r.isFollowing;
           if (isNowFollowing && !wasFollowing) newFollowerCount++;
           if (isNowFollowing) matchedTargets++;
-          return {
+          const updatedR = {
             ...r,
             previousIsFollowing: r.isFollowing,
             isFollowing: isNowFollowing,
-            isHot: !wasFollowing && isNowFollowing ? true : r.isHot,
           };
+          // Calculate engagement level (following alone = engaged, not hot)
+          updatedR.engagementLevel = getEngagementLevel(updatedR);
+          updatedR.isHot = updatedR.engagementLevel === "hot";
+          return updatedR;
         });
 
         // Generate alerts for new followers
@@ -387,7 +409,7 @@ export const Dashboard = () => {
           const hasNewActivity =
             counts.likes > 0 || counts.reposts > 0 || counts.replies > 0;
 
-          return {
+          const updatedR: Researcher = {
             ...r,
             previousLikes: r.likes,
             previousReposts: r.reposts,
@@ -398,8 +420,13 @@ export const Dashboard = () => {
             lastInteraction: hasNewActivity
               ? new Date().toISOString()
               : r.lastInteraction,
-            isHot: hasNewActivity,
+            isHot: false,
+            engagementLevel: "target",
           };
+          // Calculate engagement level: hot = 3+ total interactions
+          updatedR.engagementLevel = getEngagementLevel(updatedR);
+          updatedR.isHot = updatedR.engagementLevel === "hot";
+          return updatedR;
         });
 
         // Generate alerts for new interactions
@@ -451,28 +478,63 @@ export const Dashboard = () => {
     setResearchers((prev) => {
       // Check if already exists
       if (prev.some((r) => r.handle.toLowerCase() === handle.toLowerCase())) {
+        toast({
+          title: "Already exists",
+          description: `@${handle} is already in your target list.`,
+        });
         return prev;
       }
 
       const newResearcher: Researcher = {
         id: `researcher-manual-${Date.now()}`,
         handle,
-        name: handle,
+        name: newName.trim() || handle,
         isFollowing: false,
         likes: 0,
         reposts: 0,
         replies: 0,
         lastInteraction: null,
         isHot: false,
+        engagementLevel: "target",
       };
 
       const updated = [...prev, newResearcher];
       calculateKPIs(updated);
+
+      toast({
+        title: "Researcher added",
+        description: `@${handle} added to your target list.`,
+      });
+
       return updated;
     });
 
     setNewHandle("");
-  }, [newHandle, calculateKPIs]);
+    setNewName("");
+  }, [newHandle, newName, calculateKPIs]);
+
+  // Reset all data
+  const handleReset = useCallback(async () => {
+    await resetAllData();
+    setResearchers([]);
+    setAlerts([]);
+    setTotalFollowers(0);
+    setKpis({
+      targetsReached: 0,
+      targetsReachedDelta: 0,
+      heavilyEngaged: 0,
+      heavilyEngagedDelta: 0,
+      relevantFollowership: 0,
+      relevantFollowershipDelta: 0,
+      totalTargets: 0,
+      totalFollowers: 0,
+      reachedCount: 0,
+    });
+    toast({
+      title: "Data Reset",
+      description: "All targets, notifications, and alerts have been cleared.",
+    });
+  }, []);
 
   // Delete a researcher
   const handleDeleteResearcher = useCallback(
@@ -611,7 +673,14 @@ export const Dashboard = () => {
                 value={newHandle}
                 onChange={(e) => setNewHandle(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleAddResearcher()}
-                className="w-48 h-9"
+                className="w-36 h-9"
+              />
+              <Input
+                placeholder="Name (optional)"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddResearcher()}
+                className="w-36 h-9"
               />
               <Button
                 size="sm"
@@ -627,6 +696,43 @@ export const Dashboard = () => {
             researchers={researchers}
             onDelete={handleDeleteResearcher}
           />
+        </section>
+
+        {/* Reset Section */}
+        <section className="mt-12 pt-8 border-t border-border">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">
+                Clear all data including targets, notifications, and activity history.
+              </p>
+            </div>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" className="text-destructive hover:text-destructive">
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  Reset All Data
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset all data?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will permanently delete all target researchers, notification history,
+                    and activity data. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={handleReset}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Reset Everything
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </section>
       </main>
     </div>
